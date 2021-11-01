@@ -13,7 +13,6 @@ import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.context.ApplicationContext;
 import org.springframework.context.event.EventListener;
 import org.springframework.core.env.Environment;
-import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 import org.springframework.stereotype.Component;
 import org.springframework.util.CollectionUtils;
 
@@ -21,6 +20,9 @@ import javax.annotation.PostConstruct;
 import java.time.Duration;
 import java.time.temporal.ChronoUnit;
 import java.util.*;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.atomic.AtomicInteger;
 
 @Component
 @RequiredArgsConstructor
@@ -30,12 +32,7 @@ public class PriorityBasedConsumer {
 
     private final Environment environment;
 
-    private final ThreadPoolTaskExecutor executor;
-
     private final ApplicationContext context;
-
-    @Value("${spring.zookeeper.connect}")
-    private String zookeeperConnect;
 
     @Value("${spring.kafka.consumer.group-id}")
     private String consumerGroupId;
@@ -49,44 +46,57 @@ public class PriorityBasedConsumer {
     @Value("${spring.kafka.bootstrap-servers}")
     private String bootstrapServers;
 
-    private SortedMap<String, KafkaConsumer<String, String>> topicVsKafkaConsumers;
+    private List<SortedMap<String, KafkaConsumer<String, String>>> topicVsKafkaConsumersPerThread;
     private Map<String, Consumer> topicVsConsumerLogic;
+    private ExecutorService executor;
+    private AtomicInteger totalConsumed;
 
-    public static final List<String> CONSUMED = new ArrayList<>();
+    protected static final List<String> CONSUMED = new ArrayList<>();
 
     @PostConstruct
     public void init() {
+        totalConsumed = new AtomicInteger(0);
         Map<String, Integer> topicVsPriority = getTopicVsPriority();
-        topicVsKafkaConsumers = new TreeMap<>((topic1, topic2) ->
-                topicVsPriority.getOrDefault(topic2, 1) - topicVsPriority.getOrDefault(topic1, 1));
+        topicVsKafkaConsumersPerThread = new ArrayList<>();
         topicVsConsumerLogic = new HashMap<>();
-        for (String topic : topics) {
-            Properties consumerProperties = new Properties();
-            consumerProperties.put(ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG, bootstrapServers);
-            consumerProperties.put(ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG, StringDeserializer.class);
-            consumerProperties.put(ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG, StringDeserializer.class);
-            consumerProperties.put(ConsumerConfig.GROUP_ID_CONFIG, consumerGroupId);
-            consumerProperties.put(ConsumerConfig.AUTO_OFFSET_RESET_CONFIG, "earliest");
-            KafkaConsumer<String, String> consumer = new KafkaConsumer<>(consumerProperties);
-            consumer.subscribe(Collections.singletonList(topic));
-            topicVsKafkaConsumers.put(topic, consumer);
-            topicVsConsumerLogic.put(topic, getConsumer(topic));
+        for (int i = 0; i < consumerThreads; i++) {
+            SortedMap<String, KafkaConsumer<String, String>> topicVsKafkaConsumers = new TreeMap<>((topic1, topic2) ->
+                    topicVsPriority.getOrDefault(topic2, 1) - topicVsPriority.getOrDefault(topic1, 1));
+            for (String topic : topics) {
+                Properties consumerProperties = new Properties();
+                consumerProperties.put(ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG, bootstrapServers);
+                consumerProperties.put(ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG, StringDeserializer.class);
+                consumerProperties.put(ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG, StringDeserializer.class);
+                consumerProperties.put(ConsumerConfig.GROUP_ID_CONFIG, consumerGroupId);
+                consumerProperties.put(ConsumerConfig.AUTO_OFFSET_RESET_CONFIG, "earliest");
+                KafkaConsumer<String, String> consumer = new KafkaConsumer<>(consumerProperties);
+                consumer.subscribe(Collections.singletonList(topic));
+                topicVsKafkaConsumers.put(topic, consumer);
+                topicVsConsumerLogic.put(topic, getConsumer(topic));
+            }
+            topicVsKafkaConsumersPerThread.add(topicVsKafkaConsumers);
         }
+        executor = Executors.newFixedThreadPool(consumerThreads);
     }
 
     @EventListener(ApplicationReadyEvent.class)
     @SneakyThrows
     public void startConsumers() {
-        int totalConsumed = 0;
         Thread.sleep(100);
+        for (SortedMap<String, KafkaConsumer<String, String>> topicVsKafkaConsumers : topicVsKafkaConsumersPerThread) {
+            executor.submit(() -> consume(topicVsKafkaConsumers));
+        }
+    }
+
+    private void consume(SortedMap<String, KafkaConsumer<String, String>> topicVsKafkaConsumers) {
         try {
-            while (totalConsumed < 50) {
+            while (totalConsumed.intValue() < 50) {
                 for (Map.Entry<String, KafkaConsumer<String, String>> topicVsConsumer : topicVsKafkaConsumers.entrySet()) {
                     ConsumerRecords<String, String> records
                             = topicVsConsumer.getValue().poll(Duration.of(100, ChronoUnit.MILLIS));
                     log.info("topic : {}, consumed: {}, totalConsumed: {}", topicVsConsumer.getKey(), records.count(), totalConsumed);
                     if (!records.isEmpty()) {
-                        totalConsumed += records.count();
+                        totalConsumed.updateAndGet(v -> v + records.count());
                         topicVsConsumerLogic.getOrDefault(topicVsConsumer.getKey(), Consumer.DEFAULT).consume(records);
                         break;
                     }
@@ -97,7 +107,7 @@ public class PriorityBasedConsumer {
                 System.out.println(data);
             log.info("***********************");
         } finally {
-            if (!CollectionUtils.isEmpty(topicVsKafkaConsumers))
+            if (!CollectionUtils.isEmpty(topicVsKafkaConsumersPerThread))
                 topicVsKafkaConsumers.values().forEach(KafkaConsumer::close);
         }
     }

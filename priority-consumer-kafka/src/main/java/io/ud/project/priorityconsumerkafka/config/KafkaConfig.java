@@ -20,17 +20,17 @@ public class KafkaConfig {
 
     @Bean
     public NewTopic p1() {
-        return TopicBuilder.name("priority-1").build();
+        return TopicBuilder.name("Daily").build();
     }
 
     @Bean
     public NewTopic p2() {
-        return TopicBuilder.name("priority-2").build();
+        return TopicBuilder.name("Weekly").build();
     }
 
     @Bean
     public NewTopic p3() {
-        return TopicBuilder.name("priority-3").build();
+        return TopicBuilder.name("Monthly").build();
     }
 
     @Bean

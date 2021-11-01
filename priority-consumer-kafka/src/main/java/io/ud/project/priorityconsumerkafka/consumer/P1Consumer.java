@@ -5,7 +5,7 @@ import org.apache.kafka.clients.consumer.ConsumerRecords;
 import org.springframework.stereotype.Component;
 
 @Slf4j
-@Component("consumer-priority-1")
+@Component("consumer-Daily")
 @SuppressWarnings("unused")
 public class P1Consumer implements Consumer {
     @Override

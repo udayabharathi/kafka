@@ -53,11 +53,11 @@ public class RandomDataPublisher {
 
         private void constructMessage(int number) {
             if (number == 1) {
-                sendMessage("This is top most priority "+ UUID.randomUUID(), "priority-1");
+                sendMessage("This is top most priority "+ UUID.randomUUID(), "Daily");
             } else if (number > 1 && number < 5) {
-                sendMessage("This is medium priority "+ UUID.randomUUID(), "priority-2");
+                sendMessage("This is medium priority "+ UUID.randomUUID(), "Weekly");
             } else {
-                sendMessage("This is lowest priority "+ UUID.randomUUID(), "priority-3");
+                sendMessage("This is lowest priority "+ UUID.randomUUID(), "Monthly");
             }
         }
 
