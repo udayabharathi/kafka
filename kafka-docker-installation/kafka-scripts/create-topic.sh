@@ -1,4 +1,4 @@
-usage() { echo "Usage: $0 [-t <topic name>] [-p <partitions>] [-r <replication factor>]" 1>&2; exit 1; }
+usage() { printf "Usage: $0 -t <topic name> -p <partitions> -r <replication factor>\n" 1>&2; exit 1; }
 
 while getopts t:p:r: flag
 do

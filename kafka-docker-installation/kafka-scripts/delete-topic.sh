@@ -1,4 +1,4 @@
-usage() { echo "Usage: $0 [-t <topic name>]" 1>&2; exit 1; }
+usage() { printf "Usage: $0 -t <topic name>\n" 1>&2; exit 1; }
 
 while getopts t: flag
 do
