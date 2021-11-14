@@ -1,6 +1,6 @@
 usage() { echo "Usage: $0 [-t <topic name>]" 1>&2; exit 1; }
 
-while getopts t:p:r: flag
+while getopts t: flag
 do
     case "${flag}" in
         t) topic=${OPTARG};;
